@@ -1,0 +1,997 @@
+openapi: 3.0.3
+info:
+  title: OWASP Juice Shop API
+  description: |
+    Unofficial but comprehensive OpenAPI specification for OWASP Juice Shop.
+    
+    Juice Shop does **not** ship with a complete official OpenAPI document.
+    The only official `swagger.yml` covers only the B2B `/b2b/v2/orders` endpoint.
+    
+    This file documents the main generated (`/api/*`) and hand-written (`/rest/*`) endpoints
+    based on the current source code (server.ts + routes/).
+    
+    **Notes for security testers:**
+    - Many endpoints intentionally have weak/missing access control.
+    - Password fields are usually hashed with MD5.
+    - JWT is used for authentication (Authorization: Bearer <token>).
+    - Generated endpoints use finale-rest (Sequelize models).
+  version: "19.x / 20.x (approximate)"
+  contact:
+    name: Unofficial (derived from juice-shop source)
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+  - url: https://demo.owasp-juice.shop
+    description: Official demo instance
+  - url: https://preview.owasp-juice.shop
+    description: Preview / develop branch
+
+tags:
+  - name: Authentication
+  - name: Users
+  - name: Products
+  - name: Basket
+  - name: Reviews
+  - name: Feedback
+  - name: Challenges
+  - name: Payment & Delivery
+  - name: 2FA
+  - name: Admin / Misc
+  - name: B2B
+  - name: File & Static
+
+paths:
+  # ==================== AUTHENTICATION ====================
+  /rest/user/login:
+    post:
+      tags: [Authentication]
+      summary: Login
+      description: Authenticate with email + password. Returns JWT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  example: admin@juice-sh.op
+                password:
+                  type: string
+                  example: admin123
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authentication:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                      bid:
+                        type: integer
+                      umail:
+                        type: string
+        '401':
+          description: Invalid credentials
+
+  /rest/user/whoami:
+    get:
+      tags: [Authentication]
+      summary: Current user info
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+
+  /rest/user/authentication-details:
+    get:
+      tags: [Authentication]
+      summary: Authentication details of current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Auth details
+
+  /rest/user/change-password:
+    get:
+      tags: [Authentication]
+      summary: Change password
+      description: Uses query parameters (intentionally vulnerable design)
+      parameters:
+        - name: current
+          in: query
+          schema:
+            type: string
+        - name: new
+          in: query
+          schema:
+            type: string
+        - name: repeat
+          in: query
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Password changed
+
+  /rest/user/reset-password:
+    post:
+      tags: [Authentication]
+      summary: Reset password via security question
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                answer:
+                  type: string
+                new:
+                  type: string
+                repeat:
+                  type: string
+      responses:
+        '200':
+          description: Password reset
+
+  /rest/user/security-question:
+    get:
+      tags: [Authentication]
+      summary: Get security question for an email
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Security question
+
+  # ==================== 2FA ====================
+  /rest/2fa/status:
+    get:
+      tags: [2FA]
+      summary: 2FA status
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Status
+
+  /rest/2fa/setup:
+    post:
+      tags: [2FA]
+      summary: Setup 2FA
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Setup data (QR etc.)
+
+  /rest/2fa/verify:
+    post:
+      tags: [2FA]
+      summary: Verify 2FA token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tmpToken:
+                  type: string
+                totpToken:
+                  type: string
+      responses:
+        '200':
+          description: Verified
+
+  /rest/2fa/disable:
+    post:
+      tags: [2FA]
+      summary: Disable 2FA
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Disabled
+
+  # ==================== USERS (Generated + custom) ====================
+  /api/Users:
+    get:
+      tags: [Users]
+      summary: List users
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of users
+    post:
+      tags: [Users]
+      summary: Register new user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                passwordRepeat:
+                  type: string
+                securityQuestion:
+                  type: object
+                securityAnswer:
+                  type: string
+                role:
+                  type: string
+                  description: Can be abused (registerAdmin challenge)
+      responses:
+        '201':
+          description: User created
+
+  /api/Users/{id}:
+    get:
+      tags: [Users]
+      summary: Get user by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: User object
+    put:
+      tags: [Users]
+      summary: Update user (normally denied)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '401':
+          description: Denied
+    delete:
+      tags: [Users]
+      summary: Delete user (normally denied)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '401':
+          description: Denied
+
+  # ==================== PRODUCTS ====================
+  /api/Products:
+    get:
+      tags: [Products]
+      summary: List products
+      responses:
+        '200':
+          description: Product list
+    post:
+      tags: [Products]
+      summary: Create product (requires auth)
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Created
+
+  /api/Products/{id}:
+    get:
+      tags: [Products]
+      summary: Get product by ID
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Product
+    put:
+      tags: [Products]
+      summary: Update product
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Products]
+      summary: Delete product
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Deleted
+
+  /rest/products/search:
+    get:
+      tags: [Products]
+      summary: Search products
+      description: Vulnerable to SQL Injection
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          example: apple
+      responses:
+        '200':
+          description: Search results
+
+  /rest/products/{id}/reviews:
+    get:
+      tags: [Reviews]
+      summary: Get reviews for a product
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Reviews (NoSQL)
+    put:
+      tags: [Reviews]
+      summary: Create/update review
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                author:
+                  type: string
+      responses:
+        '201':
+          description: Review created
+
+  # ==================== BASKET ====================
+  /rest/basket/{id}:
+    get:
+      tags: [Basket]
+      summary: Get shopping basket
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Basket contents
+
+  /rest/basket/{id}/checkout:
+    post:
+      tags: [Basket]
+      summary: Place order / checkout
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Order placed
+
+  /rest/basket/{id}/coupon/{coupon}:
+    put:
+      tags: [Basket]
+      summary: Apply coupon
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: coupon
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Coupon applied
+
+  /api/BasketItems:
+    get:
+      tags: [Basket]
+      summary: List basket items
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Items
+    post:
+      tags: [Basket]
+      summary: Add item to basket
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ProductId:
+                  type: integer
+                BasketId:
+                  type: integer
+                quantity:
+                  type: integer
+      responses:
+        '201':
+          description: Added
+
+  /api/BasketItems/{id}:
+    put:
+      tags: [Basket]
+      summary: Update basket item quantity
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Basket]
+      summary: Remove basket item
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Removed
+
+  # ==================== FEEDBACK ====================
+  /api/Feedbacks:
+    get:
+      tags: [Feedback]
+      summary: List feedback
+      responses:
+        '200':
+          description: Feedback list
+    post:
+      tags: [Feedback]
+      summary: Submit feedback
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
+                rating:
+                  type: integer
+                captchaId:
+                  type: integer
+                captcha:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  /api/Feedbacks/{id}:
+    get:
+      tags: [Feedback]
+      summary: Get feedback by ID
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Feedback
+    delete:
+      tags: [Feedback]
+      summary: Delete feedback
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Deleted
+
+  # ==================== CHALLENGES ====================
+  /api/Challenges:
+    get:
+      tags: [Challenges]
+      summary: List challenges + solved status
+      responses:
+        '200':
+          description: Challenges
+
+  /api/Challenges/{id}:
+    get:
+      tags: [Challenges]
+      summary: Get challenge by ID
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Challenge
+
+  # ==================== ADDRESSES & PAYMENT ====================
+  /api/Addresss:
+    get:
+      tags: [Payment & Delivery]
+      summary: List addresses (note the double 's')
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Addresses
+    post:
+      tags: [Payment & Delivery]
+      summary: Create address
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Created
+
+  /api/Addresss/{id}:
+    get:
+      tags: [Payment & Delivery]
+      summary: Get address
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Address
+    put:
+      tags: [Payment & Delivery]
+      summary: Update address
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Payment & Delivery]
+      summary: Delete address
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Deleted
+
+  /api/Cards:
+    get:
+      tags: [Payment & Delivery]
+      summary: List payment cards
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cards
+    post:
+      tags: [Payment & Delivery]
+      summary: Add payment card
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Created
+
+  /api/Cards/{id}:
+    get:
+      tags: [Payment & Delivery]
+      summary: Get card
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Card
+    delete:
+      tags: [Payment & Delivery]
+      summary: Delete card
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Deleted
+
+  /api/Deliverys:
+    get:
+      tags: [Payment & Delivery]
+      summary: List delivery methods
+      responses:
+        '200':
+          description: Delivery options
+
+  /api/Deliverys/{id}:
+    get:
+      tags: [Payment & Delivery]
+      summary: Get delivery method
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Delivery method
+
+  # ==================== OTHER GENERATED ====================
+  /api/Complaints:
+    get:
+      tags: [Admin / Misc]
+      summary: List complaints
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Complaints
+    post:
+      tags: [Admin / Misc]
+      summary: Create complaint
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Created
+
+  /api/Recycles:
+    get:
+      tags: [Admin / Misc]
+      summary: List recycle requests
+      responses:
+        '200':
+          description: Recycles
+    post:
+      tags: [Admin / Misc]
+      summary: Create recycle request
+      responses:
+        '201':
+          description: Created
+
+  /api/SecurityQuestions:
+    get:
+      tags: [Authentication]
+      summary: List security questions
+      responses:
+        '200':
+          description: Questions
+
+  /api/SecurityAnswers:
+    post:
+      tags: [Authentication]
+      summary: Submit security answer (during registration)
+      responses:
+        '201':
+          description: Created
+
+  /api/PrivacyRequests:
+    post:
+      tags: [Admin / Misc]
+      summary: Create privacy / erasure request
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Created
+
+  /api/Quantitys:
+    get:
+      tags: [Products]
+      summary: List product quantities / stock
+      responses:
+        '200':
+          description: Quantities
+
+  # ==================== OTHER REST ====================
+  /rest/memories:
+    get:
+      tags: [Admin / Misc]
+      summary: Get memories (photo wall)
+      responses:
+        '200':
+          description: Memories
+
+  /rest/deluxe-membership:
+    post:
+      tags: [Admin / Misc]
+      summary: Upgrade to deluxe
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Upgraded
+
+  /rest/wallet/balance:
+    get:
+      tags: [Payment & Delivery]
+      summary: Get wallet balance
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Balance
+
+  /rest/order-history:
+    get:
+      tags: [Basket]
+      summary: Order history
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Orders
+
+  /rest/admin/application-version:
+    get:
+      tags: [Admin / Misc]
+      summary: Application version
+      responses:
+        '200':
+          description: Version info
+
+  /rest/admin/application-configuration:
+    get:
+      tags: [Admin / Misc]
+      summary: Application configuration
+      responses:
+        '200':
+          description: Config
+
+  /rest/captcha:
+    get:
+      tags: [Admin / Misc]
+      summary: Get captcha
+      responses:
+        '200':
+          description: Captcha image + id
+
+  /rest/image-captcha:
+    get:
+      tags: [Admin / Misc]
+      summary: Get image captcha
+      responses:
+        '200':
+          description: Image captcha
+
+  /rest/saveLoginIp:
+    get:
+      tags: [Admin / Misc]
+      summary: Save login IP (challenge related)
+      responses:
+        '200':
+          description: OK
+
+  /rest/continue-code:
+    get:
+      tags: [Challenges]
+      summary: Get continue code
+      responses:
+        '200':
+          description: Continue code
+
+  /rest/continue-code-findIt:
+    get:
+      tags: [Challenges]
+      summary: Continue code (Find It)
+      responses:
+        '200':
+          description: Code
+
+  /rest/continue-code-fixIt:
+    get:
+      tags: [Challenges]
+      summary: Continue code (Fix It)
+      responses:
+        '200':
+          description: Code
+
+  /rest/repeat-notification:
+    get:
+      tags: [Challenges]
+      summary: Repeat last notification
+      responses:
+        '200':
+          description: Notification
+
+  /rest/country-mapping:
+    get:
+      tags: [Admin / Misc]
+      summary: Country mapping
+      responses:
+        '200':
+          description: Mapping
+
+  /rest/languages:
+    get:
+      tags: [Admin / Misc]
+      summary: Available languages
+      responses:
+        '200':
+          description: Languages
+
+  # ==================== B2B ====================
+  /b2b/v2/orders:
+    post:
+      tags: [B2B]
+      summary: Create B2B order (official swagger endpoint)
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/B2BOrder'
+      responses:
+        '200':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/B2BOrderConfirmation'
+
+  # ==================== FILE / STATIC ====================
+  /ftp:
+    get:
+      tags: [File & Static]
+      summary: Directory listing of /ftp
+      responses:
+        '200':
+          description: HTML directory listing
+
+  /ftp/{file}:
+    get:
+      tags: [File & Static]
+      summary: Download file from /ftp
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File content
+
+  /support/logs:
+    get:
+      tags: [File & Static]
+      summary: Directory listing of logs
+      responses:
+        '200':
+          description: HTML listing
+
+  /support/logs/{file}:
+    get:
+      tags: [File & Static]
+      summary: Download log file
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Log content
+
+  /encryptionkeys/{file}:
+    get:
+      tags: [File & Static]
+      summary: Download encryption key file
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Key file
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT obtained from /rest/user/login
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        description: Resource ID (usually integer but accepted as string)
+
+  schemas:
+    B2BOrder:
+      type: object
+      required: [cid]
+      properties:
+        cid:
+          type: string
+          example: JS0815DE
+        orderLines:
+          type: array
+          items:
+            type: object
+            properties:
+              productId:
+                type: integer
+              quantity:
+                type: integer
+              customerReference:
+                type: string
+        orderLinesData:
+          type: string
+          description: Customer-specific JSON format
+
+    B2BOrderConfirmation:
+      type: object
+      properties:
+        cid:
+          type: string
+        orderNo:
+          type: string
+        paymentDue:
+          type: string
+          format: date
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        role:
+          type: string
+          enum: [customer, admin, deluxe, accounting]
+        username:
+          type: string
+        lastLoginIp:
+          type: string
+        profileImage:
+          type: string
+        isActive:
+          type: boolean
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        deluxePrice:
+          type: number
+        image:
+          type: string
+
+security:
+  - bearerAuth: []
